@@ -44,6 +44,124 @@ mvn spring-boot:run
 
 The server starts at `http://localhost:8080`.
 
+## Live Demo (How to Test the API)
+
+Once the server is running (via `mvn spring-boot:run` or Docker), open a **second terminal** and use the following `curl` commands.
+
+### Shorten a URL
+
+```bash
+curl -s -X POST http://localhost:8080/api/shorten \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}' | python3 -m json.tool
+```
+
+Output:
+```json
+{
+    "originalUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "shortUrl": "http://localhost:8080/eKBoQv"
+}
+```
+
+### Prove Idempotency (same URL = same short code)
+
+Run the exact same command again — the response will be identical, confirming the same URL always returns the same short code.
+
+### Redirect (visit the short URL)
+
+```bash
+curl -s -o /dev/null -w "HTTP Status: %{http_code}\nRedirects to: %{redirect_url}\n" http://localhost:8080/eKBoQv
+```
+
+Output:
+```
+HTTP Status: 302
+Redirects to: https://www.youtube.com/watch?v=dQw4w9WgXcQ
+```
+
+Or simply paste `http://localhost:8080/eKBoQv` in a browser — it will redirect to YouTube.
+
+### Error Handling
+
+```bash
+# Invalid URL → 400
+curl -s -X POST http://localhost:8080/api/shorten \
+  -H "Content-Type: application/json" \
+  -d '{"url": "not-a-url"}' | python3 -m json.tool
+
+# Non-existent short code → 404
+curl -s http://localhost:8080/ZZZZZZ | python3 -m json.tool
+```
+
+### Metrics (top 3 domains)
+
+Add several URLs from different domains, then query metrics:
+
+```bash
+# Add URLs
+curl -s -X POST http://localhost:8080/api/shorten -H "Content-Type: application/json" -d '{"url": "https://www.youtube.com/watch?v=1"}' > /dev/null
+curl -s -X POST http://localhost:8080/api/shorten -H "Content-Type: application/json" -d '{"url": "https://www.youtube.com/watch?v=2"}' > /dev/null
+curl -s -X POST http://localhost:8080/api/shorten -H "Content-Type: application/json" -d '{"url": "https://www.youtube.com/watch?v=3"}' > /dev/null
+curl -s -X POST http://localhost:8080/api/shorten -H "Content-Type: application/json" -d '{"url": "https://www.udemy.com/course/1"}' > /dev/null
+curl -s -X POST http://localhost:8080/api/shorten -H "Content-Type: application/json" -d '{"url": "https://www.udemy.com/course/2"}' > /dev/null
+curl -s -X POST http://localhost:8080/api/shorten -H "Content-Type: application/json" -d '{"url": "https://stackoverflow.com/q/1"}' > /dev/null
+
+# Query metrics
+curl -s http://localhost:8080/api/metrics/top-domains | python3 -m json.tool
+```
+
+Output:
+```json
+[
+    { "domain": "youtube.com", "count": 3 },
+    { "domain": "udemy.com", "count": 2 },
+    { "domain": "stackoverflow.com", "count": 1 }
+]
+```
+
+### Full Demo Script (copy-paste all at once)
+
+```bash
+echo "=== 1. Shorten a URL ==="
+curl -s -X POST http://localhost:8080/api/shorten \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}' | python3 -m json.tool
+
+echo "\n=== 2. Same URL = Same Result (Idempotent) ==="
+curl -s -X POST http://localhost:8080/api/shorten \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}' | python3 -m json.tool
+
+echo "\n=== 3. Different URL = Different Code ==="
+curl -s -X POST http://localhost:8080/api/shorten \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://www.github.com"}' | python3 -m json.tool
+
+echo "\n=== 4. Redirect (302 + Location header) ==="
+curl -s -o /dev/null -w "HTTP Status: %{http_code}\nRedirects to: %{redirect_url}\n" http://localhost:8080/eKBoQv
+
+echo "\n=== 5. Invalid URL (400 error) ==="
+curl -s -X POST http://localhost:8080/api/shorten \
+  -H "Content-Type: application/json" \
+  -d '{"url": "not-a-url"}' | python3 -m json.tool
+
+echo "\n=== 6. Not Found (404 error) ==="
+curl -s http://localhost:8080/ZZZZZZ | python3 -m json.tool
+
+echo "\n=== 7. Adding URLs for metrics... ==="
+for i in 1 2 3 4; do curl -s -X POST http://localhost:8080/api/shorten -H "Content-Type: application/json" -d "{\"url\": \"https://www.youtube.com/watch?v=$i\"}" > /dev/null; done
+for i in 1 2 3 4 5 6; do curl -s -X POST http://localhost:8080/api/shorten -H "Content-Type: application/json" -d "{\"url\": \"https://www.udemy.com/course/$i\"}" > /dev/null; done
+for i in 1 2; do curl -s -X POST http://localhost:8080/api/shorten -H "Content-Type: application/json" -d "{\"url\": \"https://en.wikipedia.org/wiki/Page$i\"}" > /dev/null; done
+curl -s -X POST http://localhost:8080/api/shorten -H "Content-Type: application/json" -d '{"url": "https://stackoverflow.com/q/1"}' > /dev/null
+echo "Done!"
+
+echo "\n=== 8. Top 3 Domains (Metrics) ==="
+curl -s http://localhost:8080/api/metrics/top-domains | python3 -m json.tool
+```
+
+> **Tip:** You can also use [Postman](https://www.postman.com/) if you prefer a GUI over the command line.
+
 ## Running with Docker
 
 ```bash
